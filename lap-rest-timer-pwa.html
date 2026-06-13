@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111111">
+<title>Lap & Rest Timer PWA</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#111;color:#fff;margin:0;padding:16px}
+h1,h2{margin:.4rem 0}
+.card{background:#1d1d1d;padding:12px;border-radius:12px;margin:10px 0}
+.timer{font-size:3rem;font-weight:bold;text-align:center}
+.phase{font-size:1.5rem;text-align:center}
+.bigbtn{width:100%;padding:18px;font-size:1.2rem;border:none;border-radius:12px;margin:6px 0}
+.lap{background:#3498db;color:white}.rest{background:#f39c12;color:white}
+.start{background:#2ecc71;color:white}.pause{background:#e74c3c;color:white}
+input{width:100%;padding:10px;margin:4px 0;border-radius:8px}
+table{width:100%;border-collapse:collapse} td,th{border-bottom:1px solid #333;padding:6px}
+</style>
+</head>
+<body>
+<h1>Lap & Rest Timer</h1>
+
+<div class="card">
+<input id="workoutName" placeholder="Workout name">
+<input id="stepHeight" type="number" placeholder="Step height (inches)">
+<input id="stepsPerLap" type="number" placeholder="Steps per lap">
+</div>
+
+<div class="card">
+<div id="total" class="timer">00:00:00</div>
+<div id="phase" class="phase">Ready</div>
+<div id="phaseTime" class="timer" style="font-size:2rem">00:00</div>
+</div>
+
+<button class="bigbtn start" onclick="startWorkout()">Start Workout</button>
+<button class="bigbtn rest" onclick="toRest()">REST</button>
+<button class="bigbtn lap" onclick="toLap()">NEXT LAP</button>
+<button class="bigbtn pause" onclick="pauseResume()" id="pauseBtn">Pause</button>
+
+<div class="card" id="stats"></div>
+
+<div class="card">
+<h2>Session Log</h2>
+<table><thead><tr><th>#</th><th>Type</th><th>Duration</th></tr></thead>
+<tbody id="log"></tbody></table>
+</div>
+
+<div class="card">
+<h2>History</h2>
+<div id="history"></div>
+<button onclick="exportCSV()">Export Current Session CSV</button>
+</div>
+
+<script>
+let running=false,paused=false,total=0,phaseSec=0,current="Ready";
+let laps=[],rests=[],log=[],lapNum=0,timer=null;
+
+function fmt(s){let h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+return [h,m,ss].map(v=>String(v).padStart(2,"0")).join(":");}
+function shortf(s){return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
+
+function vibrate(p){if(navigator.vibrate)navigator.vibrate(p);}
+
+function render(){
+document.getElementById("total").textContent=fmt(total);
+document.getElementById("phase").textContent=current;
+document.getElementById("phaseTime").textContent=shortf(phaseSec);
+
+let gain=0;
+const h=Number(document.getElementById("stepHeight").value||0);
+const steps=Number(document.getElementById("stepsPerLap").value||0);
+if(h&&steps) gain=((h*steps*laps.length)/12).toFixed(0);
+
+document.getElementById("stats").innerHTML=
+`Laps: ${laps.length}<br>Average Lap: ${laps.length?shortf(Math.round(laps.reduce((a,b)=>a+b,0)/laps.length)):"--"}
+<br>Average Rest: ${rests.length?shortf(Math.round(rests.reduce((a,b)=>a+b,0)/rests.length)):"--"}
+<br>Estimated Elevation Gain: ${gain} ft`;
+
+let tb=document.getElementById("log"); tb.innerHTML="";
+log.forEach((e,i)=>tb.innerHTML+=`<tr><td>${i+1}</td><td>${e.type}</td><td>${shortf(e.d)}</td></tr>`);
+save();
+}
+
+function tick(){ if(running&&!paused){total++;phaseSec++;render();}}
+
+function startWorkout(){
+if(running) return;
+running=true; current="Lap 1";
+timer=setInterval(tick,1000);
+}
+
+function toRest(){
+if(!running || current.startsWith("Rest")) return;
+laps.push(phaseSec); lapNum++;
+log.push({type:"Lap "+lapNum,d:phaseSec});
+phaseSec=0; current="Rest "+lapNum;
+vibrate([100,50,100]); render();
+}
+
+function toLap(){
+if(!running || !current.startsWith("Rest")) return;
+rests.push(phaseSec);
+log.push({type:"Rest "+rests.length,d:phaseSec});
+phaseSec=0; current="Lap "+(lapNum+1);
+vibrate([250]); render();
+}
+
+function pauseResume(){
+paused=!paused;
+document.getElementById("pauseBtn").textContent=paused?"Resume":"Pause";
+}
+
+function save(){
+localStorage.session=JSON.stringify({
+total,phaseSec,current,laps,rests,log,lapNum,
+name:workoutName.value,stepHeight:stepHeight.value,stepsPerLap:stepsPerLap.value
+});
+}
+
+function exportCSV(){
+let rows="Index,Type,DurationSeconds\n";
+log.forEach((r,i)=>rows+=`${i+1},${r.type},${r.d}\n`);
+let blob=new Blob([rows],{type:"text/csv"});
+let a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="workout.csv";
+a.click();
+}
+
+function load(){
+if(!localStorage.session) return;
+let s=JSON.parse(localStorage.session);
+Object.assign(window,s);
+total=s.total||0; phaseSec=s.phaseSec||0; current=s.current||"Ready";
+laps=s.laps||[]; rests=s.rests||[]; log=s.log||[]; lapNum=s.lapNum||0;
+workoutName.value=s.name||""; stepHeight.value=s.stepHeight||""; stepsPerLap.value=s.stepsPerLap||"";
+render();
+}
+load();
+
+function saveHistory(){
+let hist=JSON.parse(localStorage.historyData||"[]");
+hist.unshift({name:workoutName.value||"Workout",date:new Date().toLocaleString(),laps:laps.length,time:fmt(total)});
+localStorage.historyData=JSON.stringify(hist.slice(0,20));
+}
+window.addEventListener("beforeunload",saveHistory);
+
+function showHistory(){
+let hist=JSON.parse(localStorage.historyData||"[]");
+history.innerHTML=hist.map(h=>`<div>${h.name} - ${h.date} - ${h.laps} laps - ${h.time}</div>`).join("");
+}
+showHistory();
+</script>
+</body>
+</html>
