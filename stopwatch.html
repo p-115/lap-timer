@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1f1c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Step Gain — Lap & Rest Tracker</title>
+<link rel="manifest" href='data:application/json,{"name":"Step Gain Tracker","short_name":"Step Gain","start_url":".","display":"standalone","background_color":"%231a1f1c","theme_color":"%231a1f1c","icons":[]}'>
+<style>
+  :root{
+    --bg:#1a1f1c;
+    --surface:#222b26;
+    --surface-2:#2a352f;
+    --line:#3a4a41;
+    --accent:#e8862c;
+    --accent-soft:#5d3a1f;
+    --moss:#6fae8c;
+    --text:#ece9e1;
+    --muted:#8a9189;
+    --rest-color:#7aa7c7;
+    --tabbar-h:64px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:14px 16px calc(var(--tabbar-h) + 28px);
+  }
+
+  .contour{
+    width:100%;
+    max-width:480px;
+    height:14px;
+    margin:8px 0 14px;
+    opacity:0.5;
+    flex-shrink:0;
+  }
+
+  .wrap{
+    width:100%;
+    max-width:480px;
+  }
+
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  /* ---------- Header / status ---------- */
+  header{
+    text-align:center;
+    margin-bottom:2px;
+  }
+  .eyebrow{
+    font-size:10px;
+    letter-spacing:0.22em;
+    text-transform:uppercase;
+    color:var(--moss);
+    font-weight:600;
+  }
+  h1{
+    font-size:18px;
+    margin:4px 0 0;
+    font-weight:700;
+    letter-spacing:0.01em;
+  }
+  .mode-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    margin-top:10px;
+    padding:5px 14px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    background:var(--surface);
+    border:1px solid var(--line);
+    color:var(--muted);
+    transition:all .25s ease;
+  }
+  .mode-badge.lap{ color:var(--accent); border-color:var(--accent-soft); background:#2a221a; }
+  .mode-badge.rest{ color:var(--rest-color); border-color:#2f4a5e; background:#1d2a32; }
+  .mode-badge .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:currentColor;
+  }
+  .mode-badge.lap .dot, .mode-badge.rest .dot{
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1; transform:scale(1);}
+    50%{opacity:0.35; transform:scale(0.8);}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .mode-badge .dot{ animation:none; }
+  }
+  .mode-badge.paused .dot{
+    animation:none;
+    opacity:0.3;
+  }
+
+  /* ---------- Timer ---------- */
+  .display{
+    text-align:center;
+    margin:14px 0 8px;
+    padding:18px 10px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .display::before{
+    content:"";
+    position:absolute; inset:0;
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 27px,
+        rgba(255,255,255,0.025) 27px,
+        rgba(255,255,255,0.025) 28px
+      );
+    pointer-events:none;
+  }
+  .timer{
+    font-family:'JetBrains Mono','SF Mono','Courier New',monospace;
+    font-size:clamp(40px,12vw,58px);
+    font-weight:700;
+    letter-spacing:0.02em;
+    line-height:1;
+    position:relative;
+    z-index:1;
+  }
+  .timer .tenths{
+    font-size:0.5em;
+    color:var(--muted);
+  }
+  .timer-label{
+    margin-top:6px;
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:0.05em;
+    position:relative; z-index:1;
+  }
+
+  /* ---------- Elevation input ---------- */
+  .elev-row{
+    margin:10px 0;
+    display:flex;
+    align-items:stretch;
+    gap:10px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:10px 14px;
+  }
+  .elev-row label{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    font-weight:600;
+  }
+  .elev-row input{
+    width:100px;
+    font-family:'JetBrains Mono','SF Mono','Courier New',monospace;
+    font-size:20px;
+    font-weight:700;
+    color:var(--accent);
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:8px 10px;
+    text-align:right;
+  }
+  .elev-row input:focus{
+    outline:2px solid var(--accent);
+    outline-offset:1px;
+  }
+  .elev-row .unit{
+    align-self:center;
+    color:var(--muted);
+    font-size:13px;
+    font-weight:600;
+  }
+
+  /* ---------- Primary big buttons ---------- */
+  .primary-actions{
+    display:none;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    margin:14px 0;
+  }
+  .primary-actions.show{ display:grid; }
+
+  .big-btn{
+    appearance:none;
+    border:none;
+    border-radius:22px;
+    min-height:32vh;
+    color:var(--bg);
+    font-size:30px;
+    font-weight:800;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    transition:transform .08s ease, filter .15s ease, opacity .2s ease;
+    box-shadow:0 8px 24px -8px rgba(0,0,0,0.5);
+  }
+  .big-btn .sub{
+    font-size:12px;
+    font-weight:600;
+    text-transform:none;
+    letter-spacing:0.02em;
+    opacity:0.85;
+  }
+  .big-btn:active{ transform:scale(0.97); }
+  .big-btn:disabled{
+    opacity:0.22;
+    cursor:not-allowed;
+    box-shadow:none;
+  }
+  .big-rest{ background:var(--rest-color); }
+  .big-lap{ background:var(--accent); }
+
+  .start-wrap{ display:block; margin:14px 0; }
+  .start-wrap.hidden{ display:none; }
+  .big-start{
+    appearance:none;
+    border:none;
+    width:100%;
+    min-height:32vh;
+    border-radius:22px;
+    background:var(--moss);
+    color:var(--bg);
+    font-size:28px;
+    font-weight:800;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    box-shadow:0 8px 24px -8px rgba(0,0,0,0.5);
+  }
+  .big-start:active{ transform:scale(0.98); }
+
+  /* ---------- Secondary controls ---------- */
+  .secondary-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:8px;
+    margin:10px 0 4px;
+  }
+  .btn{
+    appearance:none;
+    border:none;
+    border-radius:12px;
+    padding:13px 6px;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    cursor:pointer;
+    transition:transform .08s ease, filter .15s ease;
+  }
+  .btn:active{ transform:scale(0.97); }
+  .btn:disabled{
+    opacity:0.3;
+    cursor:not-allowed;
+  }
+  .btn-pause{
+    background:transparent;
+    color:var(--moss);
+    border:1px solid var(--line);
+  }
+  .btn-pause.active{
+    background:var(--moss);
+    color:var(--bg);
+    border-color:var(--moss);
+  }
+  .btn-finish{ background:#c4564f; color:#fff; }
+  .btn-reset{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--line);
+    text-transform:none;
+    font-weight:600;
+    letter-spacing:0;
+  }
+
+  /* ---------- Log / Summary view ---------- */
+  .log h2, .summary h2{
+    font-size:12px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 10px;
+    font-weight:700;
+  }
+  .summary h2{ color:var(--accent); }
+
+  .log{ margin-top:4px; margin-bottom:24px; }
+
+  .log-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:14px;
+  }
+  .log-table th{
+    text-align:left;
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-weight:600;
+    padding:6px 8px;
+    border-bottom:1px solid var(--line);
+  }
+  .log-table td{
+    padding:9px 8px;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    font-family:'JetBrains Mono','SF Mono','Courier New',monospace;
+  }
+  .log-table tr.lap-row td:first-child{ color:var(--accent); font-weight:700; }
+  .log-table tr.rest-row td:first-child{ color:var(--rest-color); font-weight:700; }
+  .log-table td.label-cell{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+  }
+  .log-empty{
+    color:var(--muted);
+    font-size:13px;
+    text-align:center;
+    padding:18px 0;
+    border:1px dashed var(--line);
+    border-radius:12px;
+  }
+
+  .summary{
+    margin-top:6px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:18px;
+    display:none;
+  }
+  .summary.show{ display:block; }
+  .summary-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  .summary-item{
+    background:var(--surface-2);
+    border-radius:10px;
+    padding:12px;
+  }
+  .summary-item .val{
+    font-family:'JetBrains Mono','SF Mono','Courier New',monospace;
+    font-size:20px;
+    font-weight:700;
+  }
+  .summary-item .key{
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-top:4px;
+  }
+  .summary-hero{
+    grid-column:1 / -1;
+    background:linear-gradient(135deg,var(--accent-soft),transparent);
+    border:1px solid var(--accent-soft);
+  }
+  .summary-hero .val{ color:var(--accent); font-size:28px; }
+
+  .totals{
+    margin-top:18px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:18px;
+  }
+  .totals h2{
+    font-size:12px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--moss);
+    margin:0 0 14px;
+    font-weight:700;
+  }
+  .totals-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  .totals-item{
+    background:var(--surface-2);
+    border-radius:10px;
+    padding:12px;
+  }
+  .totals-item .val{
+    font-family:'JetBrains Mono','SF Mono','Courier New',monospace;
+    font-size:20px;
+    font-weight:700;
+    color:var(--moss);
+  }
+  .totals-item .key{
+    font-size:11px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-top:4px;
+  }
+
+  /* ---------- Bottom tab bar ---------- */
+  .tabbar{
+    position:fixed;
+    left:0; right:0; bottom:0;
+    height:var(--tabbar-h);
+    display:flex;
+    background:var(--surface);
+    border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+    z-index:20;
+  }
+  .tab{
+    flex:1;
+    appearance:none;
+    border:none;
+    background:none;
+    color:var(--muted);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    cursor:pointer;
+  }
+  .tab .icon{ font-size:18px; line-height:1; }
+  .tab.active{ color:var(--accent); }
+  .tab .badge{
+    position:absolute;
+    top:6px;
+    margin-left:28px;
+    background:var(--accent);
+    color:var(--bg);
+    font-size:9px;
+    font-weight:800;
+    border-radius:999px;
+    padding:1px 5px;
+    min-width:14px;
+  }
+
+  footer{
+    margin-top:10px;
+    text-align:center;
+    color:var(--muted);
+    font-size:11px;
+    letter-spacing:0.06em;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- ============ TIMER VIEW ============ -->
+  <section class="view active" id="timerView">
+    <header>
+      <div class="eyebrow">Homemade Step Mill</div>
+      <h1>Step Gain Tracker</h1>
+      <div class="mode-badge" id="modeBadge">
+        <span class="dot"></span>
+        <span id="modeText">Ready</span>
+      </div>
+    </header>
+
+    <div class="display">
+      <div class="timer" id="timerDisplay">00:00<span class="tenths">.0</span></div>
+      <div class="timer-label" id="timerLabel">Press start to begin Lap 1</div>
+    </div>
+
+    <div class="elev-row" id="elevRow">
+      <label for="elevInput">Elevation for next lap
+        <span style="color:var(--text);font-weight:400;font-size:11px;margin-top:2px;">Set this before tapping Start or Lap</span>
+      </label>
+      <input type="number" id="elevInput" inputmode="decimal" placeholder="0" min="0" step="any">
+      <span class="unit">inches</span>
+    </div>
+
+    <div class="start-wrap" id="startWrap">
+      <button class="big-start" id="startBtn">Start Lap 1</button>
+    </div>
+
+    <div class="primary-actions" id="primaryActions">
+      <button class="big-btn big-rest" id="restBtn" disabled>
+        <span>Rest</span>
+        <span class="sub">Pause climbing</span>
+      </button>
+      <button class="big-btn big-lap" id="lapBtn" disabled>
+        <span>Lap</span>
+        <span class="sub">Start next lap</span>
+      </button>
+    </div>
+
+    <div class="secondary-actions">
+      <button class="btn btn-pause" id="pauseBtn" disabled>Pause</button>
+      <button class="btn btn-finish" id="finishBtn" disabled>Finish Session</button>
+      <button class="btn btn-reset" id="resetBtn">Reset</button>
+    </div>
+
+    <footer>Works offline once loaded · Add to home screen for app mode</footer>
+  </section>
+
+  <!-- ============ LOG VIEW ============ -->
+  <section class="view" id="logView">
+    <svg class="contour" viewBox="0 0 480 14" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 7 C 40 0, 80 14, 120 7 S 200 0, 240 7 S 320 14, 360 7 S 440 0, 480 7" fill="none" stroke="#6fae8c" stroke-width="1.5"/>
+    </svg>
+
+    <div class="log">
+      <h2>Session Log</h2>
+      <div id="logEmpty" class="log-empty">No laps yet — start the session to begin logging.</div>
+      <table class="log-table" id="logTable" style="display:none;">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Type</th>
+            <th>Time</th>
+            <th>Elev (in)</th>
+            <th>Ft/hr</th>
+          </tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+
+    <div class="summary" id="summary">
+      <h2>Session Summary</h2>
+      <div class="summary-grid">
+        <div class="summary-item summary-hero">
+          <div class="val" id="sumRate">0</div>
+          <div class="key">Elevation gain — feet per hour of lap time</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumLapCount">0</div>
+          <div class="key">Laps completed</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumElevIn">0</div>
+          <div class="key">Total elevation (inches)</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumElevFt">0</div>
+          <div class="key">Total elevation (feet)</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumLapTime">00:00</div>
+          <div class="key">Total lap time</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumRestTime">00:00</div>
+          <div class="key">Total rest time</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumRestCount">0</div>
+          <div class="key">Rest periods</div>
+        </div>
+        <div class="summary-item">
+          <div class="val" id="sumTotalTime">00:00</div>
+          <div class="key">Total session time</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="totals" id="totals">
+      <h2>Running Totals</h2>
+      <div class="totals-grid">
+        <div class="totals-item">
+          <div class="val" id="totTime">00:00</div>
+          <div class="key">Total time</div>
+        </div>
+        <div class="totals-item">
+          <div class="val" id="totLapTime">00:00</div>
+          <div class="key">Total lap time</div>
+        </div>
+        <div class="totals-item">
+          <div class="val" id="totElev">0</div>
+          <div class="key">Total elevation gain (ft)</div>
+        </div>
+        <div class="totals-item">
+          <div class="val" id="totRate">0</div>
+          <div class="key">Overall elevation rate (ft/hr)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ============ BOTTOM TAB BAR ============ -->
+<nav class="tabbar">
+  <button class="tab active" data-view="timerView">
+    <span class="icon">⏱</span>
+    <span>Timer</span>
+  </button>
+  <button class="tab" data-view="logView">
+    <span class="icon">📋</span>
+    <span>Log</span>
+  </button>
+</nav>
+
+<script>
+(function(){
+  const startBtn = document.getElementById('startBtn');
+  const startWrap = document.getElementById('startWrap');
+  const restBtn = document.getElementById('restBtn');
+  const lapBtn = document.getElementById('lapBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const finishBtn = document.getElementById('finishBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const primaryActions = document.getElementById('primaryActions');
+
+  const elevInput = document.getElementById('elevInput');
+
+  const timerDisplay = document.getElementById('timerDisplay');
+  const timerLabel = document.getElementById('timerLabel');
+  const modeBadge = document.getElementById('modeBadge');
+  const modeText = document.getElementById('modeText');
+
+  const logEmpty = document.getElementById('logEmpty');
+  const logTable = document.getElementById('logTable');
+  const logBody = document.getElementById('logBody');
+  const summary = document.getElementById('summary');
+
+  const tabs = document.querySelectorAll('.tab');
+  const views = document.querySelectorAll('.view');
+
+  let status = 'idle'; // idle | lap | rest | finished
+  let lapNumber = 0;
+  let restCount = 0;
+  let segmentStart = 0;
+  let intervalId = null;
+  let segments = []; // {kind:'lap'|'rest', number, ms, elevationIn}
+  let currentLapElevationIn = 0; // elevation (inches) locked in for the lap currently running
+  let isPaused = false;
+  let pausedElapsed = 0;
+  let prePauseLabel = '';
+
+  // ---- Tab navigation ----
+  tabs.forEach(tab => {
+    tab.addEventListener('click', function(){
+      tabs.forEach(t => t.classList.remove('active'));
+      views.forEach(v => v.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.view).classList.add('active');
+      window.scrollTo(0,0);
+    });
+  });
+
+  function fmt(ms){
+    const totalSeconds = ms / 1000;
+    const m = Math.floor(totalSeconds / 60);
+    const s = Math.floor(totalSeconds % 60);
+    const t = Math.floor((totalSeconds * 10) % 10);
+    return {
+      main: String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'),
+      tenths: t
+    };
+  }
+
+  function fmtFull(ms){
+    const f = fmt(ms);
+    return f.main + '.' + f.tenths;
+  }
+
+  function tick(){
+    const elapsed = performance.now() - segmentStart;
+    const f = fmt(elapsed);
+    timerDisplay.innerHTML = f.main + '<span class="tenths">.' + f.tenths + '</span>';
+  }
+
+  function startInterval(){
+    if (intervalId) clearInterval(intervalId);
+    segmentStart = performance.now();
+    tick();
+    intervalId = setInterval(tick, 100);
+  }
+
+  function stopInterval(){
+    if (intervalId){ clearInterval(intervalId); intervalId = null; }
+  }
+
+  function setMode(mode, label){
+    modeBadge.classList.remove('lap','rest');
+    if (mode === 'lap'){
+      modeBadge.classList.add('lap');
+      modeText.textContent = label;
+    } else if (mode === 'rest'){
+      modeBadge.classList.add('rest');
+      modeText.textContent = label;
+    } else {
+      modeText.textContent = label;
+    }
+  }
+
+  function addRow(seg){
+    logEmpty.style.display = 'none';
+    logTable.style.display = '';
+    const tr = document.createElement('tr');
+    if (seg.kind === 'lap'){
+      tr.className = 'lap-row';
+      const elevFt = seg.elevationIn / 12;
+      const rate = seg.ms > 0 ? (elevFt / (seg.ms/3600000)) : 0;
+      tr.innerHTML =
+        '<td>' + seg.number + '</td>' +
+        '<td class="label-cell">Lap</td>' +
+        '<td>' + fmtFull(seg.ms) + '</td>' +
+        '<td>' + seg.elevationIn + '</td>' +
+        '<td>' + Math.round(rate).toLocaleString() + '</td>';
+    } else {
+      tr.className = 'rest-row';
+      tr.innerHTML =
+        '<td>' + seg.number + '</td>' +
+        '<td class="label-cell">Rest</td>' +
+        '<td>' + fmtFull(seg.ms) + '</td>' +
+        '<td>—</td>' +
+        '<td>—</td>';
+    }
+    logBody.appendChild(tr);
+  }
+
+  function getElevValue(){
+    const v = parseFloat(elevInput.value);
+    return isNaN(v) ? 0 : v;
+  }
+
+  function finalizeCurrentSegment(){
+    const elapsed = performance.now() - segmentStart;
+    if (status === 'lap'){
+      lapNumber += 1;
+      const seg = { kind:'lap', number: lapNumber, ms: elapsed, elevationIn: currentLapElevationIn };
+      segments.push(seg);
+      addRow(seg);
+    } else if (status === 'rest'){
+      restCount += 1;
+      const seg = { kind:'rest', number: restCount, ms: elapsed };
+      segments.push(seg);
+      addRow(seg);
+    }
+    updateTotals();
+  }
+
+  function updateTotals(){
+    const laps = segments.filter(s => s.kind === 'lap');
+    const rests = segments.filter(s => s.kind === 'rest');
+
+    const totalLapMs = laps.reduce((a,s) => a + s.ms, 0);
+    const totalRestMs = rests.reduce((a,s) => a + s.ms, 0);
+    const totalMs = totalLapMs + totalRestMs;
+    const totalElevFt = laps.reduce((a,s) => a + s.elevationIn, 0) / 12;
+
+    const hours = totalLapMs / 3600000;
+    const rate = hours > 0 ? (totalElevFt / hours) : 0;
+
+    document.getElementById('totTime').textContent = fmtFull(totalMs);
+    document.getElementById('totLapTime').textContent = fmtFull(totalLapMs);
+    document.getElementById('totElev').textContent = (Math.round(totalElevFt * 100) / 100).toLocaleString();
+    document.getElementById('totRate').textContent = Math.round(rate).toLocaleString();
+  }
+
+  function showRunningControls(){
+    startWrap.classList.add('hidden');
+    primaryActions.classList.add('show');
+  }
+
+  // --- Button handlers ---
+
+  startBtn.addEventListener('click', function(){
+    status = 'lap';
+    currentLapElevationIn = getElevValue();
+    restBtn.disabled = false;
+    lapBtn.disabled = false;
+    finishBtn.disabled = false;
+    pauseBtn.disabled = false;
+    showRunningControls();
+    setMode('lap', 'Lap 1 (Climbing)');
+    timerLabel.textContent = 'Lap 1 in progress — ' + currentLapElevationIn + ' in set';
+    startInterval();
+  });
+
+  lapBtn.addEventListener('click', function(){
+    if (status === 'lap'){
+      finalizeCurrentSegment();
+      currentLapElevationIn = getElevValue();
+      const nextNumber = lapNumber + 1;
+      setMode('lap', 'Lap ' + nextNumber + ' (Climbing)');
+      timerLabel.textContent = 'Lap ' + nextNumber + ' in progress — ' + currentLapElevationIn + ' in set';
+    } else if (status === 'rest'){
+      finalizeCurrentSegment();
+      currentLapElevationIn = getElevValue();
+      status = 'lap';
+      const nextNumber = lapNumber + 1;
+      setMode('lap', 'Lap ' + nextNumber + ' (Climbing)');
+      timerLabel.textContent = 'Lap ' + nextNumber + ' in progress — ' + currentLapElevationIn + ' in set';
+    }
+    status = 'lap';
+    restBtn.disabled = false;
+    startInterval();
+  });
+
+  restBtn.addEventListener('click', function(){
+    if (status !== 'lap') return;
+    finalizeCurrentSegment();
+    status = 'rest';
+    const nextRest = restCount + 1;
+    setMode('rest', 'Rest ' + nextRest);
+    timerLabel.textContent = 'Resting — tap Lap to resume climbing';
+    restBtn.disabled = true;
+    startInterval();
+  });
+
+  pauseBtn.addEventListener('click', function(){
+    if (status !== 'lap' && status !== 'rest') return;
+
+    if (!isPaused){
+      // Pause: freeze the timer
+      pausedElapsed = performance.now() - segmentStart;
+      stopInterval();
+      isPaused = true;
+      pauseBtn.textContent = 'Resume';
+      pauseBtn.classList.add('active');
+      restBtn.disabled = true;
+      lapBtn.disabled = true;
+      finishBtn.disabled = true;
+      prePauseLabel = timerLabel.textContent;
+      timerLabel.textContent = 'Paused — tap Resume to continue';
+      modeBadge.classList.add('paused');
+    } else {
+      // Resume: pick the timer back up from where it stopped
+      segmentStart = performance.now() - pausedElapsed;
+      startInterval();
+      isPaused = false;
+      pauseBtn.textContent = 'Pause';
+      pauseBtn.classList.remove('active');
+      finishBtn.disabled = false;
+      lapBtn.disabled = false;
+      restBtn.disabled = (status === 'rest');
+      timerLabel.textContent = prePauseLabel;
+      modeBadge.classList.remove('paused');
+    }
+  });
+
+  finishBtn.addEventListener('click', function(){
+    if (status === 'idle' || status === 'finished') return;
+    finalizeCurrentSegment();
+    stopInterval();
+    status = 'finished';
+
+    restBtn.disabled = true;
+    lapBtn.disabled = true;
+    finishBtn.disabled = true;
+    pauseBtn.disabled = true;
+    pauseBtn.textContent = 'Pause';
+    pauseBtn.classList.remove('active');
+    setMode(null, 'Session complete');
+    timerLabel.textContent = 'Tap Reset to start a new session';
+
+    renderSummary();
+  });
+
+  resetBtn.addEventListener('click', function(){
+    stopInterval();
+    status = 'idle';
+    lapNumber = 0;
+    restCount = 0;
+    segments = [];
+    currentLapElevationIn = 0;
+    isPaused = false;
+    pausedElapsed = 0;
+    pauseBtn.textContent = 'Pause';
+    pauseBtn.classList.remove('active');
+    pauseBtn.disabled = true;
+    modeBadge.classList.remove('paused');
+    logBody.innerHTML = '';
+    logEmpty.style.display = '';
+    logTable.style.display = 'none';
+    summary.classList.remove('show');
+    document.getElementById('totTime').textContent = '00:00';
+    document.getElementById('totLapTime').textContent = '00:00';
+    document.getElementById('totElev').textContent = '0';
+    document.getElementById('totRate').textContent = '0';
+
+    startWrap.classList.remove('hidden');
+    primaryActions.classList.remove('show');
+    restBtn.disabled = true;
+    lapBtn.disabled = true;
+    finishBtn.disabled = true;
+
+    timerDisplay.innerHTML = '00:00<span class="tenths">.0</span>';
+    timerLabel.textContent = 'Press start to begin Lap 1';
+    elevInput.value = '';
+    setMode(null, 'Ready');
+  });
+
+  function renderSummary(){
+    const laps = segments.filter(s => s.kind === 'lap');
+    const rests = segments.filter(s => s.kind === 'rest');
+
+    const totalLapMs = laps.reduce((a,s) => a + s.ms, 0);
+    const totalRestMs = rests.reduce((a,s) => a + s.ms, 0);
+    const totalElevIn = laps.reduce((a,s) => a + s.elevationIn, 0);
+    const totalElevFt = totalElevIn / 12;
+    const totalMs = totalLapMs + totalRestMs;
+
+    const hours = totalLapMs / 3600000;
+    const rate = hours > 0 ? (totalElevFt / hours) : 0;
+
+    document.getElementById('sumRate').textContent = Math.round(rate).toLocaleString();
+    document.getElementById('sumLapCount').textContent = laps.length;
+    document.getElementById('sumElevIn').textContent = totalElevIn.toLocaleString();
+    document.getElementById('sumElevFt').textContent = (Math.round(totalElevFt * 100) / 100).toLocaleString();
+    document.getElementById('sumLapTime').textContent = fmtFull(totalLapMs);
+    document.getElementById('sumRestTime').textContent = fmtFull(totalRestMs);
+    document.getElementById('sumRestCount').textContent = rests.length;
+    document.getElementById('sumTotalTime').textContent = fmtFull(totalMs);
+
+    summary.classList.add('show');
+  }
+
+  // --- Service worker for offline use (best-effort) ---
+  if ('serviceWorker' in navigator){
+    const swCode = "self.addEventListener('install', e => self.skipWaiting());" +
+                    "self.addEventListener('fetch', e => {});";
+    try {
+      const blob = new Blob([swCode], { type: 'text/javascript' });
+      const swUrl = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swUrl).catch(function(){});
+    } catch(e){}
+  }
+})();
+</script>
+
+</body>
+</html>
